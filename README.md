@@ -29,10 +29,11 @@ If we don't multi-thread and instead attempt to serialize grabbing->decoding->pr
 **Recognition accuracy is entirely dependant on the quality of the face database.** If you are not familiar with this process, I suggest reading up on this from the reference links below.
 
 ##Execution
-Run the app with somethng like:
+Run the app with something like:
 ```
 OPENCV_OPENCL_DEVICE=':dGPU:2' ./tuFace --cascade /usr/local/share/OpenCV/lbpcascades/lbpcascade_frontalface.xml --csv csv7.txt --url "http://user:password@192.168.1.1/cgi/mjpg/mjpg.cgi?bogus=foo.mjpg" --url "http://user:password@192.168.1.2/cgi/mjpg/mjpg.cgi?bogus=foo.mjpg"
 ```
+This sets the OPENCV_OPENCL_DEVICE environment variable to use GPU 2, uses a LBP cascade for face finding, uses a CSV file in the current directory and specifies the MJPEG URLs for two different IP cameras. Note: the *?bogus=foo.mjpeg* in the URL was required in my case to get FFMPEG to identify the stream type properly. 
 
 ##References
 * http://thinkrpi.wordpress.com/2013/04/03/step-5-prepare-photos/

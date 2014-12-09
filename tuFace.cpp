@@ -38,6 +38,7 @@
 #include "opencv2/imgproc.hpp"
 #include "opencv2/objdetect.hpp"
 #include "opencv2/face.hpp"
+#include <opencv2/tracking.hpp>
 #include "opencv2/core/ocl.hpp"
 
 #include <iostream>
@@ -48,9 +49,12 @@
 
 // include the Boost headers for threading
 #include "boost/thread.hpp"
+// include the Boost headers for high precision system time
+#include "boost/date_time/posix_time/posix_time.hpp"
 
 using namespace cv;
 using namespace cv::face;
+using namespace boost::posix_time;
 using namespace std;
 
 // max number of people to search for
@@ -91,14 +95,49 @@ static void print_usage(const string& ourname) {
 }
 
 // Code for capture thread
-void captureFunc(vector<VideoCapture> *capture){
+void captureFunc(vector<VideoCapture> *capture) {
+	size_t size = 10;
+	vector<ptime> initialLoopTimestamp(size), nextFrameTimestamp(size), currentFrameTimestamp(size), finalLoopTimestamp(size);
+	vector<time_duration> td(size), td1(size);
+	int framerate = 15;
+
+	//initialize initial timestamps
+	for (unsigned cap_index=0; cap_index<(*capture).size(); cap_index++) {
+		nextFrameTimestamp[cap_index] = microsec_clock::local_time();
+		currentFrameTimestamp[cap_index] = nextFrameTimestamp[cap_index];
+		td[cap_index] = (currentFrameTimestamp[cap_index] - nextFrameTimestamp[cap_index]);
+	}
+
 	for(;;){
 		for (unsigned cap_index=0; cap_index<(*capture).size(); cap_index++) {
+			// wait for X microseconds until 1second/framerate time has passed after previous frame grab
+			while(td[cap_index].total_microseconds() < 1000000/framerate){
+				//determine current elapsed time
+				currentFrameTimestamp[cap_index] = microsec_clock::local_time();
+				td[cap_index] = (currentFrameTimestamp[cap_index] - nextFrameTimestamp[cap_index]);
+			}
 			// grab from camera as fast as possible. We will retreive() it later.
 			// If we don't do it this way, because the face detection stuff is so slow
 			// the capture buffer will fill up after a few seconds, and we won't be able 
 			// to read() it anymore.
+
+			//determine time at start of write
+			initialLoopTimestamp[cap_index] = microsec_clock::local_time();
+
 			(*capture)[cap_index].grab();
+			// add 1second/framerate time for next loop pause
+			nextFrameTimestamp[cap_index] = nextFrameTimestamp[cap_index] + microsec(1000000/framerate);
+			// reset time_duration so while loop engages
+			td[cap_index] = (currentFrameTimestamp[cap_index] - nextFrameTimestamp[cap_index]);
+
+			// determine and print out delay in ms, should be less than 1000/FPS
+			// occasionally, if delay is larger than said value, correction will occur
+			// if delay is consistently larger than said value, the network/system is not fast
+			// enough to run at that frame rate.
+			//finalLoopTimestamp[cap_index] = microsec_clock::local_time();
+			//td1[cap_index] = (finalLoopTimestamp[cap_index] - initialLoopTimestamp[cap_index]);
+			//int delayFound = td1[cap_index].total_milliseconds();
+			//cout << "Delay from cam " << cap_index << " = " << delayFound << endl;
 		}
 	}
 }
@@ -178,6 +217,16 @@ int main(int argc, char **argv) {
     CascadeClassifier haar_cascade;
     haar_cascade.load(fn_haar);
 
+    // initialize the tracker
+    Ptr<Tracker> tracker = Tracker::create( "MEDIANFLOW" );
+    if( tracker == NULL ) {
+	cout << "***Error in the instantiation of the tracker...***\n";
+	return -1;
+    }
+    bool trackerInitialized = false;
+    bool trackerActive = false;
+    Rect2d trackerBoundingBox;
+
     // Get a handle to the Video device:
     vector<VideoCapture> cap;
     // We need to declare the Mats outside of the camera loop for this to work with more than one camera
@@ -251,6 +300,16 @@ int main(int argc, char **argv) {
             		// And finally write all we've found out to the original image!
             		if (predicted_confidence > 250.0) { //Fischerfaces
             		//if (predicted_confidence > 4500.0) { //Eigenfaces
+            			// If the tracker hasn't been initialized, do so on this face
+				if(!trackerInitialized) {
+					trackerBoundingBox = face_i;
+            				if(!tracker->init(original[cap_index], trackerBoundingBox)) {
+						cout << "***Could not initialize tracker...***\n";
+						return -1;
+					}
+					trackerInitialized = true;
+				}
+
             			rectangle(original[cap_index], face_i, Scalar(0,255,0), 1);
             			// Create the text we will annotate the box with:
             			std::stringstream confidence;
@@ -261,7 +320,6 @@ int main(int argc, char **argv) {
             			int pos_x = std::max(face_i.tl().x - 10, 0);
             			int pos_y = std::max(face_i.tl().y - 10, 0);
             			// And now put it into the image:
-            			//putText(original, box_text, Point(pos_x, pos_y), FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0,255,0), 2.0);
             			if (i == 0) {
 					t = (double)getTickCount() - t;
 					double fps = getTickFrequency()/t;
@@ -283,6 +341,18 @@ int main(int argc, char **argv) {
 		std::stringstream cap_index_str;
 		cap_index_str << cap_index;
 		string cam_frame_title = "tuFace-" + cap_index_str.str();
+		if(trackerInitialized) {
+			// Update the tracker
+			if(tracker->update(original[cap_index], trackerBoundingBox)) {
+				// Draw the tracker bounding box
+				rectangle(original[cap_index], trackerBoundingBox, Scalar(255,0,0), 2, 1);
+			} else {
+				cout << "We lost the face we were tracking. Resetting to track a new face." << endl;
+				trackerInitialized = false;
+				// because we cannot simply init() again to reset, we have to recreate the tracker instance
+				tracker = Tracker::create( "MEDIANFLOW" );
+			}
+		}
         	// Show the result:
         	imshow(cam_frame_title, original[cap_index]);
 		frame[cap_index].release();

@@ -220,12 +220,12 @@ int main(int argc, char **argv) {
     // initialize the tracker
     Ptr<Tracker> tracker = Tracker::create( "MEDIANFLOW" );
     if( tracker == NULL ) {
-	cout << "***Error in the instantiation of the tracker...***\n";
+	cout << "***Error in the instantiation of the tracker...***" << endl;
 	return -1;
     }
     bool trackerInitialized = false;
-    bool trackerActive = false;
     Rect2d trackerBoundingBox;
+    vector<int> tracking_prediction_accumulator(MAX_PEOPLE,0);
 
     // Get a handle to the Video device:
     vector<VideoCapture> cap;
@@ -258,6 +258,7 @@ int main(int argc, char **argv) {
     // Give the cameras a chance to start streaming or we will get empty frames for a while
     usleep(10000);
 
+    int loop_counter = 0;
     // All the cameras are now open, start looking for faces
     for(;;) {
     	for (unsigned cap_index=0; cap_index<cap.size(); cap_index++) {
@@ -281,7 +282,19 @@ int main(int argc, char **argv) {
         	// Find the faces in the frame:
         	vector< Rect_<int> > faces;
         	haar_cascade.detectMultiScale(gray[cap_index], faces);
-        	//haar_cascade.detectMultiScale(gray, faces, 1.1, 3, CASCADE_SCALE_IMAGE, Size(80,80));
+        	//haar_cascade.detectMultiScale(gray, faces, 1.1, 3, CASCADE_SCALE_IMAGE, Size(80,80));	
+		if(trackerInitialized) {
+			// Update the tracker
+			if(tracker->update(original[cap_index], trackerBoundingBox)) {
+				// Draw the tracker bounding box
+				rectangle(original[cap_index], trackerBoundingBox, Scalar(255,0,0), 2, 1);
+			} else {
+				cout << "We lost the face we were tracking. Resetting to track a new face." << endl;
+				trackerInitialized = false;
+				// because we cannot simply init() again to reset, we have to recreate the tracker instance
+				tracker = Tracker::create( "MEDIANFLOW" );
+			}
+		}
         	// At this point you have the position of the faces in
         	// faces. Now we'll get the faces, make a prediction and
         	// annotate it in the video. Cool or what?
@@ -304,7 +317,7 @@ int main(int argc, char **argv) {
 				if(!trackerInitialized) {
 					trackerBoundingBox = face_i;
             				if(!tracker->init(original[cap_index], trackerBoundingBox)) {
-						cout << "***Could not initialize tracker...***\n";
+						cout << "***Could not initialize tracker...***" << endl;
 						return -1;
 					}
 					trackerInitialized = true;
@@ -335,24 +348,57 @@ int main(int argc, char **argv) {
 	    		} else {
 				rectangle(original[cap_index], face_i, Scalar(0,0,255), 1);
 	    		}
+
+			if (trackerInitialized) {
+				// determine how much overlap there is between this face rectangle and the tracker bounding box
+				Rect faceOverlap = face_i & (Rect)trackerBoundingBox;
+				Rect compareRect;
+				if (face_i.area() < trackerBoundingBox.area()) {
+					compareRect = face_i;
+				} else {
+					compareRect = trackerBoundingBox;
+				}
+
+				int overlapPercentage = 0;
+				if(faceOverlap.area() > compareRect.area()) {
+					overlapPercentage = (int)(((float)compareRect.area()/(float)faceOverlap.area()) * 100);
+				} else {
+					if(faceOverlap.area() > 0) {
+						overlapPercentage = (int)(((float)faceOverlap.area()/(float)compareRect.area()) * 100);
+					}
+				}
+				
+				// See if the percentage overlap is over 75%, and if so draw another rectangle on the overlap area.
+				if (overlapPercentage >= 75) {
+					loop_counter++;
+					// Add the current score to the accumulator 
+					tracking_prediction_accumulator[prediction] = (predicted_confidence + tracking_prediction_accumulator[prediction]) / loop_counter;
+					rectangle(original[cap_index], faceOverlap, Scalar(255,255,0), 2, 1);
+				}
+			}
 			face.release();
 			face_resized.release();
         	}
 		std::stringstream cap_index_str;
 		cap_index_str << cap_index;
 		string cam_frame_title = "tuFace-" + cap_index_str.str();
-		if(trackerInitialized) {
-			// Update the tracker
-			if(tracker->update(original[cap_index], trackerBoundingBox)) {
-				// Draw the tracker bounding box
-				rectangle(original[cap_index], trackerBoundingBox, Scalar(255,0,0), 2, 1);
-			} else {
-				cout << "We lost the face we were tracking. Resetting to track a new face." << endl;
-				trackerInitialized = false;
-				// because we cannot simply init() again to reset, we have to recreate the tracker instance
-				tracker = Tracker::create( "MEDIANFLOW" );
+
+		if (trackerInitialized) {
+			// Calculate the position for annotated text (make sure we don't put illegal values in there):
+			int pos_x = std::max((int)trackerBoundingBox.tl().x - 10, 0);
+			int pos_y = std::max((int)trackerBoundingBox.br().y + 12, 0);
+			int highest_count = 0;
+			int best_match = 0;
+			for(int a = 0; a < MAX_PEOPLE; a++) {
+				if (tracking_prediction_accumulator[a] > highest_count) {
+					best_match = a;
+					highest_count = tracking_prediction_accumulator[a];
+				}
 			}
+			string box_text = "Id="+people[best_match];
+			putText(original[cap_index], box_text, Point(pos_x, pos_y), FONT_HERSHEY_PLAIN, 1.0, Scalar(255,0,0), 2.0);
 		}
+
         	// Show the result:
         	imshow(cam_frame_title, original[cap_index]);
 		frame[cap_index].release();

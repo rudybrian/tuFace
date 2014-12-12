@@ -10,6 +10,9 @@ An OpenCL-enabled face recognition app for multiple IP webcams built on OpenCV.
 
 This code is alpha-level at best, and users should have a working knowledge of the component technologies involved (C++, OpenCV, Haar cascades, Eigenfaces/Fisherfaces/LBP, etc) before attempting any modifications yourself.
 
+##Current Implementation
+Once started, tuFace begins looking for faces in the streams. Once a face is found and identified (the recognition prediction confidence must exceed a defined threshold), the face is tracked until it moves out of view. The tracker is beneficial because it will track faces even if facial recognition cannot identify the person due to occlusion or head rotation as they move. This also aids in determining if a new face has entered the frame, or if the same face is present. The tracker accumulates the most likely facial recognition predictions as an individual moves about within frame in an attempt to average out temporary recognition failures. Currently only a single face is tracked, but the application will be enhanced to track up to 10 faces per stream. 
+
 ##Limitations
 The current version of tuFace spawns a seperate video capture thread to grab frames from the video streams as fast as possible.  As a result, if any of the camera feeds takes extra time to grab(), it will slow down the capture thread and the frame rate of the other cameras will also drop. In a future version each camera feed will get it's own capture thread.
   

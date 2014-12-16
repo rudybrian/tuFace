@@ -243,7 +243,8 @@ int main(int argc, char **argv) {
 		return -1;
 	} else {
 		cap.push_back(icap);
-		cout << "Camera " << cam_index << ": (" << cam_url.at(cam_index) << ") is now open." << endl;
+		double fps = icap.get(CAP_PROP_FPS);
+		cout << "Camera " << cam_index << ": (" << cam_url.at(cam_index) << ") is now open and capturing at " << fps << " FPS"<< endl;
 		std::stringstream cam_index_str;
                 cam_index_str << cam_index;
                 string cam_frame_title = "tuFace-" + cam_index_str.str();

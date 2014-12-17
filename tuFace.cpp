@@ -110,8 +110,11 @@ void captureFunc(vector<VideoCapture> *capture) {
 	for(;;){
 		for (unsigned cap_index=0; cap_index<(*capture).size(); cap_index++) {
 			double t = (double)getTickCount();
+			// update the current time so the while loop kicks in
+			currentFrameTimestamp[cap_index] = (double)getTickCount();
+
 			while (currentFrameTimestamp[cap_index] < nextFrameTimestamp[cap_index]) {
-				boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+				boost::this_thread::sleep(boost::posix_time::milliseconds(20));
 				currentFrameTimestamp[cap_index] = (double)getTickCount();
 			}
 			// calculate the next timestamp
@@ -123,9 +126,6 @@ void captureFunc(vector<VideoCapture> *capture) {
 			// to read() it anymore.
 
 			(*capture)[cap_index].grab(); // grab a frame
-
-			// update the current time so the while loop kicks in
-			currentFrameTimestamp[cap_index] = (double)getTickCount();
 
 			t = (double)getTickCount() - t;
 			double fps = getTickFrequency()/t;

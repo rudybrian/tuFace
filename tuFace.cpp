@@ -97,47 +97,43 @@ static void print_usage(const string& ourname) {
 // Code for capture thread
 void captureFunc(vector<VideoCapture> *capture) {
 	size_t size = 10;
-	vector<ptime> initialLoopTimestamp(size), nextFrameTimestamp(size), currentFrameTimestamp(size), finalLoopTimestamp(size);
-	vector<time_duration> td(size), td1(size);
-	int framerate = 15;
+	vector<double> nextFrameTimestamp(size), currentFrameTimestamp(size);
+	int framerate = 25;
+	vector<int> loop_counter(size,0);
 
 	//initialize initial timestamps
 	for (unsigned cap_index=0; cap_index<(*capture).size(); cap_index++) {
-		nextFrameTimestamp[cap_index] = microsec_clock::local_time();
+		nextFrameTimestamp[cap_index] = (double)getTickCount();
 		currentFrameTimestamp[cap_index] = nextFrameTimestamp[cap_index];
-		td[cap_index] = (currentFrameTimestamp[cap_index] - nextFrameTimestamp[cap_index]);
 	}
 
 	for(;;){
 		for (unsigned cap_index=0; cap_index<(*capture).size(); cap_index++) {
-			// wait for X microseconds until 1second/framerate time has passed after previous frame grab
-			while(td[cap_index].total_microseconds() < 1000000/framerate){
-				//determine current elapsed time
-				currentFrameTimestamp[cap_index] = microsec_clock::local_time();
-				td[cap_index] = (currentFrameTimestamp[cap_index] - nextFrameTimestamp[cap_index]);
+			double t = (double)getTickCount();
+			while (currentFrameTimestamp[cap_index] < nextFrameTimestamp[cap_index]) {
+				boost::this_thread::sleep(boost::posix_time::milliseconds(10));
+				currentFrameTimestamp[cap_index] = (double)getTickCount();
 			}
+			// calculate the next timestamp
+			nextFrameTimestamp[cap_index] = currentFrameTimestamp[cap_index] + (getTickFrequency()/framerate);
+
 			// grab from camera as fast as possible. We will retreive() it later.
 			// If we don't do it this way, because the face detection stuff is so slow
 			// the capture buffer will fill up after a few seconds, and we won't be able 
 			// to read() it anymore.
 
-			//determine time at start of write
-			initialLoopTimestamp[cap_index] = microsec_clock::local_time();
+			(*capture)[cap_index].grab(); // grab a frame
 
-			(*capture)[cap_index].grab();
-			// add 1second/framerate time for next loop pause
-			nextFrameTimestamp[cap_index] = nextFrameTimestamp[cap_index] + microsec(1000000/framerate);
-			// reset time_duration so while loop engages
-			td[cap_index] = (currentFrameTimestamp[cap_index] - nextFrameTimestamp[cap_index]);
+			// update the current time so the while loop kicks in
+			currentFrameTimestamp[cap_index] = (double)getTickCount();
 
-			// determine and print out delay in ms, should be less than 1000/FPS
-			// occasionally, if delay is larger than said value, correction will occur
-			// if delay is consistently larger than said value, the network/system is not fast
-			// enough to run at that frame rate.
-			//finalLoopTimestamp[cap_index] = microsec_clock::local_time();
-			//td1[cap_index] = (finalLoopTimestamp[cap_index] - initialLoopTimestamp[cap_index]);
-			//int delayFound = td1[cap_index].total_milliseconds();
-			//cout << "Delay from cam " << cap_index << " = " << delayFound << endl;
+			t = (double)getTickCount() - t;
+			double fps = getTickFrequency()/t;
+			if (loop_counter[cap_index] % 100 == 0) {
+				cout << "Camera " << cap_index << " actual FPS = " << fps << endl;
+				loop_counter[cap_index] = 0;
+			}
+			loop_counter[cap_index]++; 
 		}
 	}
 }
